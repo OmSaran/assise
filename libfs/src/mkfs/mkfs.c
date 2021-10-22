@@ -164,6 +164,7 @@ int main(int argc, char *argv[])
 
 	if(dev_id == g_log_dev) {
 		log_size_blks = g_log_size * (g_n_max_libfs + g_n_nodes) + (1UL * (1 << 10));
+		printf("Log size blocks = %ld, File size blocks = %ld\n", log_size_blks, file_size_blks);
 		mlfs_assert(file_size_blks > log_size_blks);
 		file_size_blks -= log_size_blks;
 	}

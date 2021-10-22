@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [  -n "$(uname -a | grep Ubuntu)" ]; then
+if [  -n "$(uname -a | grep .)" ]; then
 	# apt update
 	#sudo apt update
 
