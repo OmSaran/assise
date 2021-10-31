@@ -17,10 +17,11 @@ void main() {
     if(remove(FILE_NAME) == 0) {
         printf("Deleted file successfully!\n");
     } else {
-        printf("Deletion of file unsuccessful, probably does not exist!\b");
+        printf("Deletion of file unsuccessful, probably does not exist!\n");
     }
 
     fd = open(FILE_NAME, O_CREAT | O_RDWR, 0644);
+    printf("Open completed\n");
     ret = write(fd, buf, strlen(buf));
     assert(ret == strlen(buf));
 
