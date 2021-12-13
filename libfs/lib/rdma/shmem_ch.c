@@ -1,3 +1,6 @@
+#include <signal.h>
+#include <sys/types.h>
+
 #include "shmem_ch.h"
 #include "messaging.h"
 #include "agent.h"
@@ -61,7 +64,7 @@ void shmem_chan_disconnect(int sockfd)
 
 	set_channel_state(ctx, CH_CONNECTION_TERMINATED);
 
-	printf("Connection terminated [sockfd:%d]\n", ctx->sockfd);
+	// printf("Connection terminated [sockfd:%d]\n", ctx->sockfd);
 
 	s_conn_bitmap[ctx->sockfd] = 0;
 	s_conn_ctx[ctx->sockfd] = NULL;
@@ -75,7 +78,7 @@ void shmem_chan_disconnect(int sockfd)
 	free(ctx);
 }
 
-void shmem_poll_loop(int sockfd)
+void shmem_poll_loop(int sockfd, int* shutdown)
 {
 	struct conn_context *ctx = get_channel_ctx(sockfd);
 	volatile struct message *recv_msg = NULL;
@@ -89,9 +92,26 @@ void shmem_poll_loop(int sockfd)
 	gettimeofday(&start, NULL);
 	//do stuff
 
-	printf("start shmem_poll_loop for sockfd %d\n", ctx->sockfd);
+	// printf("start shmem_poll_loop for sockfd %d\n", ctx->sockfd);
 	while(ctx->poll_enable) {
+		// printf("IN LOOOOOOOOOOOOOOOOOOOOOOP!!!\n");
+		// if(rpc_shutdown == 1) {
+		// 	shmem_chan_disconnect(ctx->sockfd);
+		// 	return;
+		// }
+		if(*shutdown == 1) {
+// 			printf("****************************************** Shutting down due to variable rpc_shutdown! PID = %d  \
+// TID = %d ******************************************\n", getpid(), gettid());
+			shmem_chan_disconnect(ctx->sockfd);
+			return;
+		}
 		recv_msg = shmem_recv(ctx);
+		if(*shutdown == 1) {
+// 			printf("****************************************** Shutting down due to variable rpc_shutdown! PID: %d \
+// TID: %d ******************************************", getpid(), gettid());
+			shmem_chan_disconnect(ctx->sockfd);
+			return;
+		}
 
 		if(recv_msg) {
 			recv_msg->meta.app.sockfd = ctx->sockfd;
@@ -123,10 +143,12 @@ void shmem_poll_loop(int sockfd)
 
 		// block if no events received during POLLING_TIMEOUT
 		if(elapsed > POLLING_TIMEOUT) {
-			debug_print("switching to blocking mode [after: %lu us]\n", elapsed);
+			// printf("switching to blocking mode [after: %lu us]\n", elapsed);
 			while(n_events >= 0) {
 				//Read the message from the server into the buffer
 				if(recv(ctx->realfd, ping_msg, 1, 0) <= 0) {
+// 					printf("****************************************** RECEIVED DISCONNECT FROM SERVER: pid = %d!!  \
+// TID = %d **************************************************\n", getpid(), gettid());
 					shmem_chan_disconnect(ctx->sockfd);
 					return;
 				}
@@ -152,9 +174,11 @@ void shmem_poll_loop(int sockfd)
 
 }
 
-void * local_client_thread(void *arg)
+void * local_client_thread(void *args)
 {
-	printf("In thread\n");
+	// printf("In threaddd\n");
+
+	struct client_server_thread_args *cs_args = (struct client_server_thread_args*)args;
 
 	char send_path[32];
 	char recv_path[32];
@@ -162,7 +186,7 @@ void * local_client_thread(void *arg)
 	char init_msg[128];
 	int client_socket;
 	struct sockaddr_in serv_addr;
-	int sockfd = *((int *)arg);
+	int sockfd = *(cs_args->arg1);
 
 	struct conn_context *ctx = s_conn_ctx[sockfd];
 
@@ -200,13 +224,13 @@ void * local_client_thread(void *arg)
 		mp_die("send failed");
 	}
 
-	printf("SEND --> MSG_INIT [pid %s]\n", init_msg);
+	// printf("SEND --> MSG_INITT [pid %s]\n", init_msg);
 
 	if(recv(ctx->realfd, shm_msg, 128, 0) <= 0) {
 		mp_die("Receive failed");
 	}
 
-	printf("RECV <-- MSG_SHM [paths: %s]\n", shm_msg);
+	// printf("RECV <-- MSG_SHM [paths: %s]\n", shm_msg);
 
 	split_char(shm_msg, send_path, recv_path);
 
@@ -235,10 +259,15 @@ void * local_client_thread(void *arg)
 		}
 	}
 #endif
-	shmem_poll_loop(sockfd);
+	// printf("local_client_thread: before shmem_poll_loop\n");
+	shmem_poll_loop(sockfd, cs_args->arg2);
+	// printf("local_client_thread: after shmem_poll_loop\n");
 	//shmem_chan_clear(sockfd);
 
-	printf("Exit client_thread \n");
+	// printf("Exit client_thread tid = %d \n", gettid());
+
+	mp_destroy_shm(send_path, send_addr, total_size);
+	mp_destroy_shm(recv_path, recv_addr, total_size);
 
 	pthread_exit(NULL);
 }
@@ -336,7 +365,9 @@ void * local_server_thread(void *arg)
 	//pthread_mutex_unlock(&lock);
 	close(ctx->realfd);
 #endif
-	shmem_poll_loop(sockfd);
+	int *shutdown = (int *)malloc(sizeof(int));
+	*shutdown = 0;
+	shmem_poll_loop(sockfd, shutdown);
 	//shmem_chan_clear(sockfd);
 
 	printf("Exit server_thread \n");
@@ -357,6 +388,12 @@ void * local_server_loop(void *port)
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_port = htons(atoi(port));
 	serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	int yes = 1;
+	int ret = setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, (void *)&yes, sizeof(yes));
+	printf("setsockopt return = %d\n", ret);
+	if(ret != 0) {
+		perror("failed to set sockopt");
+	}
 	if(bind(server_socket, (struct sockaddr *) &serv_addr, sizeof(serv_addr)))
 		mp_die("Error binding socket");
 

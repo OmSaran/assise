@@ -307,7 +307,7 @@ uint8_t *dax_init(uint8_t dev, char *dev_path)
 	// up to the max dev_size (last 550 MB is not accessible).
 	// dev_size[dev] -= (550 << 20);
 
-	printf("dev-dax engine is initialized: dev_path %s size %lu MB\n", 
+	mlfs_printf("dev-dax engine is initialized: dev_path %s size %lu MB\n", 
 			dev_path, dev_size[dev] >> 20);
 
 #ifdef ENABLE_MEMCPY_OFFLOAD

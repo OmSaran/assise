@@ -406,7 +406,7 @@ void rc_chan_disconnect(struct rdma_cm_id *id)
 
 	set_channel_state(ctx, CH_CONNECTION_TERMINATED);
 
-	printf("Connection terminated [sockfd:%d]\n", ctx->sockfd);
+	// printf("Connection terminated [sockfd:%d]\n", ctx->sockfd);
 
 
 #if 1

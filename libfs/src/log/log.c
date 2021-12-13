@@ -20,6 +20,8 @@
 #include "storage/storage.h"
 #include "concurrency/thpool.h"
 
+#include <libpmem.h>
+
 #if MLFS_LEASE
 #include "experimental/leases.h"
 #endif
@@ -117,6 +119,46 @@ void init_log()
 		panic("init_log: invalid log dev");
 	}
 
+	// ***************************** Hack for log recovery *****************************
+			g_fs_log = (struct fs_log *)mlfs_zalloc(sizeof(struct fs_log));
+			g_log_sb = (struct log_superblock *)mlfs_zalloc(sizeof(struct log_superblock));
+
+			g_fs_log->log_sb_blk = disk_sb[g_log_dev].log_start + g_self_id * g_log_size;
+
+			//FIXME: this is not the actual log size (rename variable!)
+			g_fs_log->size = g_fs_log->log_sb_blk + g_log_size;
+
+			// FIXME: define usage of log dev
+			g_fs_log->dev = g_log_dev;
+			g_fs_log->id = g_self_id;
+			g_fs_log->nloghdr = 0;
+
+			// ret = pipe((int*)g_fs_log->digest_fd);
+			// if (ret < 0) 
+			// 	panic("cannot create pipe for digest\n");
+
+			read_log_superblock((struct log_superblock *)g_log_sb);
+
+			g_fs_log->log_sb = g_log_sb;
+			// printf("The start address of pmem is %ld\n", g_bdev[g_root_dev]->map_base_addr);
+			// printf("The g_fs_log->log_sb_blk address = %ld\n", g_fs_log->log_sb_blk);
+			// printf("The g_fs_log->log_sb->n_digest value = %ld\n", g_fs_log->log_sb->n_digest);
+
+			// Assuming all logs are digested by recovery.
+			//g_fs_log->next_avail_header = disk_sb[dev].log_start + 1; // +1: log superblock
+			//g_fs_log->start_blk = disk_sb[dev].log_start + 1;
+
+			g_fs_log->next_avail_header = g_fs_log->log_sb_blk + 1;
+			g_fs_log->start_blk = g_fs_log->log_sb_blk + 1;
+
+			mlfs_printf("BEFORE shutdown: g_fs_log->start_blk = %d\n", g_fs_log->start_blk);
+			shutdown_log();
+			mlfs_printf("AFTER shutdown: g_fs_log->start_blk = %d\n", g_fs_log->start_blk);
+
+			free(g_fs_log);
+			free(g_log_sb);
+	// ********************************************************** END OF HACK **********************************************************
+
 	g_fs_log = (struct fs_log *)mlfs_zalloc(sizeof(struct fs_log));
 	g_log_sb = (struct log_superblock *)mlfs_zalloc(sizeof(struct log_superblock));
 
@@ -130,13 +172,16 @@ void init_log()
 	g_fs_log->id = g_self_id;
 	g_fs_log->nloghdr = 0;
 
-	ret = pipe((int*)g_fs_log->digest_fd);
-	if (ret < 0) 
-		panic("cannot create pipe for digest\n");
+	// ret = pipe((int*)g_fs_log->digest_fd);
+	// if (ret < 0) 
+	// 	panic("cannot create pipe for digest\n");
 
 	read_log_superblock((struct log_superblock *)g_log_sb);
 
 	g_fs_log->log_sb = g_log_sb;
+	// printf("The start address of pmem is %ld\n", g_bdev[g_root_dev]->map_base_addr);
+	// printf("The g_fs_log->log_sb_blk address = %ld\n", g_fs_log->log_sb_blk);
+	// printf("The g_fs_log->log_sb->n_digest value = %ld\n", g_fs_log->log_sb->n_digest);
 
 	// Assuming all logs are digested by recovery.
 	//g_fs_log->next_avail_header = disk_sb[dev].log_start + 1; // +1: log superblock
@@ -144,6 +189,10 @@ void init_log()
 
 	g_fs_log->next_avail_header = g_fs_log->log_sb_blk + 1;
 	g_fs_log->start_blk = g_fs_log->log_sb_blk + 1;
+
+	mlfs_printf("AFTER Init: g_fs_log->start_blk = %d\n", g_fs_log->start_blk);
+	// shutdown_log();
+	// printf("AFTER: g_fs_log->start_blk = %d\n", g_fs_log->start_blk);
 
 	mlfs_debug("end of the log %lx\n", g_fs_log->size);
 
@@ -187,13 +236,32 @@ void init_log()
 	//while(!g_fs_log->ready);
 #endif
 
-	printf("init log dev %d start_blk %lu end %lu\n", g_log_dev,
+	mlfs_printf("init log dev %d start_blk %lu end %lu\n", g_log_dev,
 			g_fs_log->start_blk, g_fs_log->size);
 }
 
 void shutdown_log()
 {
-	mlfs_info("Shutting down log%s", "\n");
+	mlfs_printf("Shutting down log%s", "\n");
+	mlfs_printf("shutdown: The start address of pmem is %ld\n", g_bdev[g_root_dev]->map_base_addr);
+	mlfs_printf("shutdown: The g_fs_log->log_sb_blk address = %ld\n", g_fs_log->log_sb_blk);
+	mlfs_printf("shutdown: The g_fs_log->log_sb->start_digest value = %ld\n", (g_fs_log->log_sb->start_digest));
+	// mlfs_printf("shutdown: The g_fs_log->log_sb->start_digest value = %ld\n", (g_fs_log->log_sb->));
+	mlfs_printf("shutdown: The g_fs_log->log_sb->n_digest value = %ld\n", atomic_load(&(g_fs_log->log_sb->n_digest)));
+	struct log_superblock *test = (struct log_superblock *)mlfs_zalloc(sizeof(struct log_superblock));
+	read_log_superblock((struct log_superblock *)test);
+	mlfs_printf("shutdown: The test->n_digest value = %ld\n", atomic_load(&(test->n_digest)));
+	// printf("Modifying n_digest to 1\n");
+	// atomic_init(&(g_fs_log->log_sb->n_digest), 1);
+
+	// if( atomic_load(&(g_fs_log->log_sb->n_digest)) == 1) {
+	// 	printf("Value is 1, crashing!\n");
+	// 	g_fs_log->log_sb->start_digest = g_fs_log->log_sb->start_digest + 1;
+	// 	_exit(0);
+	// }
+	// printf("shutdown: Setting value to 1!\n");
+	// atomic_store(&g_fs_log->log_sb->n_digest, 1);
+	// printf("shutdown: The g_fs_log->log_sb->n_digest value = %ld\n", atomic_load(&(g_fs_log->log_sb->n_digest)));
 
 	int dev=0;
 #if defined(DISTRIBUTED) && !defined(MASTER)
@@ -233,7 +301,7 @@ void shutdown_log()
 #endif
 
 	if (atomic_load(&g_fs_log->log_sb->n_digest)) {
-		mlfs_info("%s", "[L] Digesting remaining log data\n");
+		// printf("%s", "[L] Digesting remaining log data\n");
 		while(make_digest_request_async(100) != -EBUSY);
 		m_barrier();
 		wait_on_digesting();
@@ -241,6 +309,8 @@ void shutdown_log()
 		wait_on_peer_digesting(get_next_peer());
 #endif
 	}
+
+
 }
 
 static loghdr_t *read_log_header(addr_t blkno)
@@ -1199,6 +1269,8 @@ static void commit_log(void)
 		//	g_perf_stats.tmp_tsc += (asm_rdtscp() - tsc_begin);
 #endif
 		atomic_fetch_add(&g_log_sb->n_digest, 1);
+		write_log_superblock((struct log_superblock *)g_log_sb);
+		
 		//mlfs_printf("n_digest %u\n", atomic_load(&g_log_sb->n_digest));
 	}
 }
@@ -1531,8 +1603,8 @@ void wait_on_digesting()
 // FIXME: function is currently not asynchronous
 int make_digest_request_async(int percent)
 {
-	mlfs_log("try digest async | digesting %d n_digest %lu\n",
-			g_fs_log->digesting, atomic_load(&g_log_sb->n_digest));
+	// printf("try digest async | digesting %d n_digest %lu\n",
+	// 		g_fs_log->digesting, atomic_load(&g_log_sb->n_digest));
 	if (!g_fs_log->digesting && atomic_load(&g_log_sb->n_digest) > 0) {
 		set_digesting();
 		//mlfs_debug("Send digest command: %s\n", cmd_buf);
@@ -1612,7 +1684,7 @@ uint32_t make_digest_request_sync(int percent)
 			g_self_id, g_log_dev, g_fs_log->n_digest_req, g_log_sb->start_digest,
 		       	 g_fs_log->log_sb_blk + 1, atomic_load(&g_log_sb->end));
 
-	mlfs_printf("%s\n", cmd);
+	// printf("Logging command: %s\n", cmd);
 
 	rpc_forward_msg(g_kernfs_peers[g_kernfs_id]->sockfd[SOCK_BG], cmd);
 

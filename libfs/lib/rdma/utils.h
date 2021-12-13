@@ -194,6 +194,8 @@ inline void* mp_create_shm(char* path, size_t size) {
 		exit(-1);
 	}
 
+	close(fd);
+
 	return addr;
 }
 

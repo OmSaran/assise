@@ -31,7 +31,7 @@ void init_rdma_agent(char *listen_port, struct mr_context *regions,
 
 void shutdown_rdma_agent();
 
-int add_connection(char* ip, char *port, int app_type, pid_t pid, int ch_type, int polling_loop); 
+int add_connection(char* ip, char *port, int app_type, pid_t pid, int ch_type, int polling_loop, int* shutdown); 
 
 static void on_pre_conn(struct rdma_cm_id *id);
 static void on_connection(struct rdma_cm_id *id);

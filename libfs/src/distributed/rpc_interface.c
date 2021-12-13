@@ -7,7 +7,7 @@
 #include "filesystem/fs.h"
 #include "mlfs/mlfs_interface.h"
 #endif
-
+#define DISTRIBUTED
 #ifdef DISTRIBUTED
 
 #if 0
@@ -20,6 +20,7 @@ char g_self_ip[INET_ADDRSTRLEN];
 int g_self_id = -1;
 int g_kernfs_id = -1;
 int rpc_shutdown = 0;
+int socket_fds[3];
 
 //struct timeval start_time, end_time;
 
@@ -27,31 +28,35 @@ int rpc_shutdown = 0;
 
 int init_rpc(struct mr_context *regions, int n_regions, char *listen_port, signal_cb_fn signal_callback)
 {
+	rpc_shutdown = 0;
 	assert(RPC_MSG_BYTES > MAX_REMOTE_PATH); //ensure that we can signal remote read requests (including file path)
 
 	int chan_type = -1;
 
 	peer_init();
 
-	printf("%s\n", "fetching node's IP address..");
-
-	printf("Process pid is %u\n", getpid());
+	mlfs_printf("%s\n", "fetching node's IP address..");
+#ifdef KERNFS
+	printf("KERNFS Process pid is %u\n", getpid());
+#else
+	mlfs_printf("LIBFS Process pid is %u\n", getpid());
+#endif
 
 	if(g_n_nodes > 1) {
 		//Use RDMA IP when running Assise in distributed mode
 		fetch_intf_ip(rdma_intf, g_self_ip);
 		chan_type = CH_TYPE_REMOTE;
-		printf("ip address on interface \'%s\' is %s\n", rdma_intf, g_self_ip);
+		mlfs_printf("ip address on interface \'%s\' is %s\n", rdma_intf, g_self_ip);
 	}
 	else {
 		//otherwise, default to localhost
 		fetch_intf_ip(local_intf, g_self_ip);
 		chan_type = CH_TYPE_LOCAL;
-		printf("ip address on interface \'%s\' is %s\n", local_intf, g_self_ip);
+		mlfs_printf("ip address on interface \'%s\' is %s\n", local_intf, g_self_ip);
 	}
 
 
-	printf("cluster settings:\n");
+	mlfs_printf("cluster settings:\n");
 	//create array containing all peers
 	for(int i=0; i<g_n_nodes; i++) {
 		if(i<g_n_hot_rep) {
@@ -86,7 +91,7 @@ int init_rpc(struct mr_context *regions, int n_regions, char *listen_port, signa
 			g_kernfs_id = g_kernfs_peers[i]->id;
 		}
 			
-		printf("--- node %d - ip:%s\n", i, g_peers[i]->ip);
+		mlfs_printf("--- node %d - ip:%s\n", i, g_peers[i]->ip);
 	}
 
 	//NOTE: disable this check if we want to allow external clients (i.e. no local shared area)
@@ -98,6 +103,7 @@ int init_rpc(struct mr_context *regions, int n_regions, char *listen_port, signa
 	init_rdma_agent(listen_port, regions, n_regions, RPC_MSG_BYTES, chan_type, add_peer_socket, remove_peer_socket,
 			signal_callback);
 #else
+	mlfs_printf("Initializing rdma_agent for libfs\n");
 	init_rdma_agent(NULL, regions, n_regions, RPC_MSG_BYTES, chan_type, add_peer_socket, remove_peer_socket,
 			signal_callback);
 #endif
@@ -136,16 +142,16 @@ int init_rpc(struct mr_context *regions, int n_regions, char *listen_port, signa
 		num_peers++;
 
 		if(do_connect) {
-			printf("Connecting to KernFS instance %d [ip: %s]\n", i, g_kernfs_peers[i]->ip);
-
-			add_connection((char*)g_kernfs_peers[i]->ip, listen_port, SOCK_IO, pid, chan_type, always_poll);
-			add_connection((char*)g_kernfs_peers[i]->ip, listen_port, SOCK_BG, pid, chan_type, always_poll);
-			add_connection((char*)g_kernfs_peers[i]->ip, listen_port, SOCK_LS, pid, chan_type, always_poll);
+			mlfs_printf("Connecting to KernFS instance %d [ip: %s]\n", i, g_kernfs_peers[i]->ip);
+			socket_fds[0] = add_connection((char*)g_kernfs_peers[i]->ip, listen_port, SOCK_IO, pid, chan_type, always_poll, &rpc_shutdown);
+			mlfs_printf("socket 0 = %d\n", socket_fds[0]);
+			socket_fds[1] = add_connection((char*)g_kernfs_peers[i]->ip, listen_port, SOCK_BG, pid, chan_type, always_poll, &rpc_shutdown);
+			socket_fds[2] = add_connection((char*)g_kernfs_peers[i]->ip, listen_port, SOCK_LS, pid, chan_type, always_poll, &rpc_shutdown);
 
 		}
 	}
 
-	mlfs_debug("%s", "awaiting remote KernFS connections\n");
+	mlfs_printf("%s", "awaiting remote KernFS connections\n");
 
 
 	//gettimeofday(&start_time, NULL);
@@ -182,15 +188,24 @@ int init_rpc(struct mr_context *regions, int n_regions, char *listen_port, signa
 #endif
 
 	//sleep(4);
-	printf("%s\n", "MLFS cluster initialized");
+	mlfs_printf("%s\n", "MLFS cluster initialized");
 
 		//gettimeofday(&start_time, NULL);
 }
 
 int shutdown_rpc()
 {
+	mlfs_printf("in shutdown_rpc %s\n", "");
 	rpc_shutdown = 1;
-	shutdown_rdma_agent();
+	// printf("The socket %d is %d", 0, socket_fds[0]);
+	// printf("The socket %d is %d", 1, socket_fds[1]);
+	// printf("The socket %d is %d", 2, socket_fds[2]);
+	// close(socket_fds[0]);
+	// close(socket_fds[1]);
+	// close(socket_fds[2]);
+	shutdown_rdma_agent(socket_fds, 3);
+	// peer_init();
+
 	return 0;
 }
 

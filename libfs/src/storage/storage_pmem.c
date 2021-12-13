@@ -47,6 +47,7 @@ int pmem_read(uint8_t dev, uint8_t *buf, addr_t blockno, uint32_t io_size)
 int pmem_write(uint8_t dev, uint8_t *buf, addr_t blockno, uint32_t io_size)
 {
 	//copy and flush data to pmem.
+	assert(0);
 	pmem_memcpy_persist(pmem_addr[dev] + (blockno * g_block_size_bytes), buf, io_size);
 
 	//mlfs_debug("write block number %d\n", blockno);
@@ -57,6 +58,7 @@ int pmem_write(uint8_t dev, uint8_t *buf, addr_t blockno, uint32_t io_size)
 int pmem_write_unaligned(uint8_t dev, uint8_t *buf, addr_t blockno, uint32_t offset, 
 		uint32_t io_size)
 {
+	assert(0);
 	//copy and flush data to pmem.
 	pmem_memcpy_persist(pmem_addr[dev] + (blockno * g_block_size_bytes) + offset, 
 			buf, io_size);

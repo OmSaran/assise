@@ -676,7 +676,7 @@ int mlfs_free_blocks_node(struct super_block *sb, unsigned long blocknr,
 					block_high, &prev, &next);
 
 	if (ret) {
-		mlfs_debug("%s: find free slot fail: %d\n", __func__, ret);
+		printf("%s: find free slot fail: %d\n", __func__, ret);
 		pthread_mutex_unlock(&free_list->mutex);
 		mlfs_free_blocknode(sb, curr_node);
 		return ret;
@@ -709,6 +709,7 @@ int mlfs_free_blocks_node(struct super_block *sb, unsigned long blocknr,
 	ret = mlfs_insert_blocktree(sb, tree, curr_node);
 	if (ret) {
 		new_node_used = 0;
+		printf("Error in mlfs_insert_blocktree\n");
 		goto out;
 	}
 	if (!prev)

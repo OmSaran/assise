@@ -8,6 +8,7 @@
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+// #include <libpmem.h>
 
 #include "storage/storage.h"
 #include "mlfs/mlfs_user.h"
@@ -190,7 +191,18 @@ void shutdown_fs(void)
 		panic("cannot close shared memory\n");
 	*/
 
+	free_datastructures();
+
 	return ;
+}
+
+void free_datastructures() {
+	// printf("Clearing the datastructures!\n");
+	HASH_CLEAR(hh, dlookup_hash);
+	HASH_CLEAR(hash_handle, inode_hash);
+	HASH_CLEAR(hh, lru_hash);
+	HASH_CLEAR(hh, g_fd_table.open_files_ht);
+	memset(g_fd_table.open_files, 0, g_max_open_files * sizeof(struct file));
 }
 
 #ifdef USE_SLAB
@@ -380,6 +392,7 @@ static void mlfs_rpc_init(void) {
 
 
 	init_rpc(mrs, n_regions, port, signal_callback);
+	mlfs_printf("The g_self_id = %d\n", g_self_id);
 	init_log(g_self_id);
 
 	// only replicate if we have more than one node in our cluster
@@ -474,7 +487,7 @@ void init_fs(void)
 
 	}
 	else
-		mlfs_printf("LibFS already initialized. Skipping..%s\n", "");
+		printf("LibFS already initialized. Skipping..%s\n", "");
 }
 
 ///////////////////////////////////////////////////////////////////////

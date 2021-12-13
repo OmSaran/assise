@@ -1,3 +1,4 @@
+#define DISTRIBUTED
 #ifdef DISTRIBUTED
 
 #include "io/device.h"
@@ -70,6 +71,7 @@ void add_peer_socket(int sockfd)
 	bitmap_set(sock_bitmap, sockfd, 1);
 	//if peer is not found, then this is a LibFS process
 	if(!peer) {
+		// printf("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& PEER NOT FOUND! PID: %d &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n", getpid());
 #ifdef LIBFS
 		// only KernFS processes accept connections from LibFSes
 		mlfs_assert(false);
@@ -94,13 +96,14 @@ void add_peer_socket(int sockfd)
 
 	unlock_peer_access();
 
-	mlfs_printf("Established connection with %s on sock:%d of type:%d and peer:%p\n",
-			peer->ip, psock->fd, psock->type, g_rpc_socks[psock->fd]->peer);
+	mlfs_printf("Established connection with %s on sock:%d of type:%d and peer:%p and pid: %d\n",
+			peer->ip, psock->fd, psock->type, g_rpc_socks[psock->fd]->peer, getpid());
 	//print_peer_id(peer);
 }
 
 void remove_peer_socket(int sockfd)
 {
+	mlfs_printf("in remove_peer_socket!\n");
 	//struct peer_id *peer = find_peer(sockfd);
 	struct peer_id *peer = g_rpc_socks[sockfd]->peer;
 	mlfs_assert(peer);
@@ -120,7 +123,9 @@ void remove_peer_socket(int sockfd)
 	peer->sockcount--;
 	g_rpc_socks[sockfd] = NULL;
 	g_sock_count--;
+	mlfs_printf("Process %d; thread %d clearing sockbitmap with sockfd %d\n", getpid(), gettid(), sockfd);
 	bitmap_clear(sock_bitmap, sockfd, 1);
+	mlfs_printf("Process %d; thread %d cleared sockbitmap with sockfd %d successfully!\n", getpid(), gettid(), sockfd);
 
 	mlfs_info("Disconnected with %s on sock:%d of type:%d\n",
 			peer->ip, psock->fd, psock->type);
@@ -181,8 +186,32 @@ struct peer_id * _find_peer(char* ip, uint32_t pid)
 	// check sockets for yet-to-be-registered peers
 	int idx = 0;
 	for(int i=0; i<g_sock_count; i++) {
+		// printf("sock_bitmap_size = %d\n", sock_bitmap_size);
 		idx = find_next_bit(sock_bitmap, sock_bitmap_size, idx);
-		//mlfs_assert(g_rpc_socks[idx]);
+		// printf("idx = %d\n", idx);
+#ifndef KERNFS
+		mlfs_printf("idx before = %d; thread = %d; process = %d\n", idx, gettid(), getpid());
+		// mlfs_printf("%d mod %d = %d\n", idx, sock_bitmap_size, (((int)idx) % ((int)sock_bitmap_size)));
+		// mlfs_printf("printing idx again before changing it: %d\n", idx);
+		// mlfs_printf("1 modulus 3 = %d\n", (1 % 3));
+		idx = (((int)idx) % ((int)sock_bitmap_size));
+		mlfs_printf("idx after = %d; thread = %d; process = %d\n", idx, gettid(), getpid());
+		if(g_sock_count == 1 && !g_rpc_socks[idx]) {
+			printf("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ BYPASSING FIND_PEER_BUG! PID: %d $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n", getpid());
+			for(int j=0; j<3; j++) {
+				if(g_rpc_socks[j]) {
+					printf("WORKAROUND IDX FOR g_rpc_socks = %d\n", j);
+					idx = j;
+				}
+			}
+			if(!g_rpc_socks[idx]) {
+				printf("COULD NOT BYPASS BUG, BREAKING OUT OF THE LOOP\n");
+				g_sock_count--;
+				break;
+			}
+		}
+#endif
+		mlfs_assert(g_rpc_socks[idx]);
 		//mlfs_assert(g_rpc_socks[idx]->peer);
 		if(g_rpc_socks[idx] && g_rpc_socks[idx]->peer == 0) {
 			//idx++;
@@ -200,7 +229,15 @@ struct peer_id * _find_peer(char* ip, uint32_t pid)
 	// next, check the g_peers array
 	for(int i=0; i<g_peer_count; i++) {
 		idx = find_next_bit(peer_bitmap, peer_bitmap_size, idx);
-		//mlfs_assert(g_peers[idx]);
+		#ifndef KERNFS
+		mlfs_printf("peer idx before = %d; thread = %d; process = %d\n", idx, gettid(), getpid());
+		// mlfs_printf("%d mod %d = %d\n", idx, sock_bitmap_size, (((int)idx) % ((int)sock_bitmap_size)));
+		// mlfs_printf("printing idx again before changing it: %d\n", idx);
+		// mlfs_printf("1 modulus 3 = %d\n", (1 % 3));
+		idx = (((int)idx) % ((int)peer_bitmap_size));
+		mlfs_printf("peer idx after = %d; thread = %d; process = %d\n", idx, gettid(), getpid());
+		#endif
+		mlfs_assert(g_peers[idx]);
 		//if(g_peers[i] == 0)
 		//	continue;
 		mlfs_debug("peer[%d]: ip %s pid %u\n", idx, g_peers[idx]->ip, g_peers[idx]->pid);

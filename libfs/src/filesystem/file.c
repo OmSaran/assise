@@ -20,6 +20,7 @@ struct open_file_table g_fd_table;
 
 void mlfs_file_init(void)
 {
+	memset(g_fd_table.open_files, 0, g_max_open_files * sizeof(struct file));
 	g_fd_table.open_files_ht = NULL;
 	pthread_spin_init(&g_fd_table.lock, PTHREAD_PROCESS_SHARED); 
 }

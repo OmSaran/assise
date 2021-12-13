@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "mlfs/mlfs_user.h"
 #include "global/global.h"
@@ -38,6 +39,7 @@
 int log_fd = 0;
 int shm_fd = 0;
 uint8_t *shm_base;
+struct sigaction original_sigint_handler;
 
 #if 0
 void mlfs_get_time(mlfs_time_t *a) {}
@@ -326,8 +328,8 @@ int digest_inode(uint8_t from_dev, uint8_t to_dev, int libfs_id,
 
 	src_dinode = (struct dinode *)bh->b_data;
 
-	mlfs_debug("[INODE] dev %u type %u inum %u size %lu\n",
-			g_root_dev, src_dinode->itype, inum, src_dinode->size);
+	printf("[INODE] dev %u type %u inum %u size %lu nlinks %ld\n",
+			g_root_dev, src_dinode->itype, inum, src_dinode->size, src_dinode->nlink);
 
 	// Inode exists only in NVM layer.
 	to_dev = g_root_dev;
@@ -391,9 +393,10 @@ int digest_inode(uint8_t from_dev, uint8_t to_dev, int libfs_id,
 	}
 
 	inode->size = src_dinode->size;
+	inode->nlink = src_dinode->nlink;
 
-	mlfs_debug("[INODE] (%d->%d) inode inum %u type %d, size %lu\n",
-			from_dev, to_dev, inode->inum, inode->itype, inode->size);
+	printf("[INODE] (%d->%d) inode inum %u type %d, size %lu, nlinks %ld\n",
+			from_dev, to_dev, inode->inum, inode->itype, inode->size, inode->nlink);
 
 	mlfs_mark_inode_dirty(libfs_id, inode);
 
@@ -631,8 +634,10 @@ int digest_allocate(uint8_t from_dev, uint8_t to_dev, int libfs_id, uint32_t inu
 		sync_inode_from_dinode(ip, &dip);
 	}
 
-	if (ip->size >= length)
+	if (ip->size >= length){
+		printf("error: fallocate to smaller size! from %ld to %ld\n", ip->size, length);
 		panic("error: fallocate to smaller size!");
+	}
 
 	blk_length = length >> g_block_size_shift;
 	if (length % g_block_size_bytes)
@@ -941,6 +946,7 @@ int digest_unlink(uint8_t from_dev, uint8_t to_dev, int libfs_id, uint32_t inum)
 
 static void digest_each_log_entries(uint8_t from_dev, int libfs_id, loghdr_meta_t *loghdr_meta)
 {
+	printf("Digesting each log entry!\n");
 	int i, ret;
 	loghdr_t *loghdr;
 	uint16_t nr_entries;
@@ -959,6 +965,7 @@ static void digest_each_log_entries(uint8_t from_dev, int libfs_id, loghdr_meta_
 			case L_TYPE_INODE_CREATE: 
 			// ftruncate is handled by this case.
 			case L_TYPE_INODE_UPDATE: {
+				printf("In the inode update!!!\n");
 				if (enable_perf_stats) 
 					tsc_begin = asm_rdtscp();
 
@@ -1535,6 +1542,7 @@ static int persist_dirty_objects_hdd(void)
 int digest_logs(uint8_t from_dev, int libfs_id, int n_hdrs, addr_t start_blkno,
 	       	addr_t end_blkno, addr_t *loghdr_to_digest, int *rotated)
 {
+	printf("DIGESTING LOGS!\n");
 	loghdr_meta_t *loghdr_meta;
 	int i, n_digest;
 	uint64_t tsc_begin;
@@ -2072,6 +2080,15 @@ void locks_init(void)
 #endif
 }
 
+void signal_shutdown_kernfs(int signum)
+{
+	printf("received shutdown signal [signum:%d] for kernfs\n", signum);
+	fflush(stdout);
+	fflush(stderr);
+	sigaction(SIGINT, &original_sigint_handler, NULL);
+	raise(SIGINT);
+}
+
 void init_fs(void)
 {
 	int i;
@@ -2080,6 +2097,13 @@ void init_fs(void)
 #ifdef USE_SLAB
 	mlfs_slab_init(3UL << 30); 
 #endif
+
+	struct sigaction action;
+	memset(&action, 0, sizeof(action));
+	action.sa_handler = signal_shutdown_kernfs;
+	// sigaction(SIGUSR1, &action, NULL);
+	sigaction(SIGINT, &action, &original_sigint_handler);
+	// sigaction(SIGTERM, &action, NULL);
 
 	device_init();
 
@@ -2219,7 +2243,7 @@ void signal_callback(struct app_context *msg)
 		//uint32_t n_digest;
 		//addr_t start_blk, log_end;
 		
-		printf("peer recv: %s\n", msg->data);
+		printf("peer recv 2: %s\n", msg->data);
 
 		struct digest_arg *digest_arg = (struct digest_arg *)mlfs_alloc(sizeof(struct digest_arg));
 		digest_arg->sock_fd = msg->sockfd;
@@ -2254,7 +2278,7 @@ void signal_callback(struct app_context *msg)
 		uint32_t n_digested;
 		addr_t start_digest;
 
-		printf("peer recv: %s\n", msg->data);
+		printf("yolo peer recv   : %s\n", msg->data);
 		sscanf(msg->data, "|%s |%d|%d|%d|%lu|%d|%d|", cmd_hdr, &log_id, &dev,
 				&n_digested, &start_digest, &rotated, &lru_updated);
 		update_peer_digest_state(g_sync_ctx[log_id]->peer, start_digest, n_digested, rotated);
@@ -2403,7 +2427,7 @@ void signal_callback(struct app_context *msg)
 		char ip[NI_MAXHOST];
 		
 		sscanf(msg->data, "|%s |%d|%u|%s", cmd_hdr, &id, &pid, ip);
-
+		printf("Tring to find peer for command p\n");
 		struct peer_id *peer = _find_peer(ip, pid);
 		mlfs_assert(peer);
 		peer->id = id;

@@ -399,7 +399,7 @@ int mlfs_posix_close(int fd)
 {
 	struct file *f;
 
-	mlfs_posix("[POSIX] close(fd=%d)\n", fd);
+	printf("[POSIX] close(fd=%d)\n", fd);
 
 	f = &g_fd_table.open_files[fd];
 
@@ -438,15 +438,21 @@ int mlfs_posix_stat(const char *filename, struct stat *stat_buf)
 {
 	struct inode *inode;
 
-	mlfs_posix("[POSIX] stat(%s)\n", filename);
+	mlfs_printf("[POSIX] stat(%s)\n", filename);
 
 	inode = namei((char *)filename);
+	mlfs_printf("[POSIX] namei done! %s\n", "");
 
 	if (!inode) {
+		mlfs_printf("[POSIX] stat ENOENT %s!\n", "");
 		return -ENOENT;
 	}
 
+	mlfs_printf("[POSIX] stati doing %s\n", "");
 	stati(inode, stat_buf);
+	mlfs_printf("[POSIX] hardlinks for %s = %d\n", filename, stat_buf->st_nlink);
+	mlfs_printf("[POSIX] stati size = %ld done\n", stat_buf->st_size);
+	mlfs_printf("[POSIX] stati done %s\n", "");
 
 	return 0;
 }
@@ -475,7 +481,7 @@ int mlfs_posix_fallocate(int fd, offset_t offset, offset_t len)
 	uint32_t alloc_length;
 	int ret = 0;
 
-	mlfs_posix("[POSIX] fallocate(fd=%d, offset=%lu, len=%lu)\n", fd, offset, len);
+	printf("[POSIX] fallocate(fd=%d, offset=%lu, len=%lu)\n", fd, offset, len);
 
 	f = &g_fd_table.open_files[fd];
 
@@ -483,12 +489,12 @@ int mlfs_posix_fallocate(int fd, offset_t offset, offset_t len)
 		return -EBADF;
 
 	if (offset != 0) {
-		mlfs_posix("[POSIX] fallocate: %s\n", "nonzero offset unsupported");
+		printf("[POSIX] fallocate: %s\n", "nonzero offset unsupported");
 		return -EINVAL;
 	}
 
 	if (len < f->ip->size) {
-		mlfs_posix("[POSIX] fallocate: length %lu < current inode size %lu\n", len, f->ip->size);
+		printf("[POSIX] fallocate: length %lu < current inode size %lu\n", len, f->ip->size);
 		return -EINVAL;
 	}
 
